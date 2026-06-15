@@ -1,7 +1,7 @@
 // Main orchestrator: wires camera → detector → renderer → UI.
 
 import { startCamera, flipCamera } from './camera.js';
-import { initDetector, detect } from './face-detector.js';
+import { initDetector, detect, initSegmenter, segment } from './face-detector.js';
 import { Renderer } from './renderer.js';
 import { downloadCanvasPNG, CanvasRecorder } from './recorder.js';
 
@@ -10,9 +10,10 @@ const canvas = document.getElementById('canvas');
 const statusEl = document.getElementById('status');
 const fpsEl = document.getElementById('fps');
 
-const sliderIds = ['slimFace', 'vLine', 'enlargeEyes', 'slimNose', 'noseHeight', 'lipSize', 'smooth'];
+const sliderIds = ['slimFace', 'vLine', 'enlargeEyes', 'smooth', 'glow'];
 const sliders = Object.fromEntries(sliderIds.map(id => [id, document.getElementById(id)]));
 const autoOpt = document.getElementById('autoOptimize');
+const removeBgEl = document.getElementById('removeBg');
 
 function readParams() {
   const p = {};
@@ -50,6 +51,8 @@ let renderer;
 let recorder;
 let presets;
 let detectorReady = false;
+let segmenterReady = false;
+let segmenterLoading = false;
 
 // View orientation (preview + PNG export). Recording captures base canvas.
 const view = { mirror: true, rotation: 0 }; // rotation in degrees: 0/90/180/270
@@ -60,6 +63,7 @@ function applyViewTransform() {
 }
 let frameCounter = 0;
 let cachedLandmarks = null;
+let cachedMask = null;
 let lastFrameTime = performance.now();
 let fpsAccum = 0;
 let fpsFrames = 0;
@@ -103,9 +107,11 @@ function loop(now) {
     fpsAccum = 0; fpsFrames = 0;
   }
 
+  const lowPower = autoOpt.checked && isMobile();
+  const wantBg = removeBgEl.checked;
+
   if (detectorReady && video.readyState >= 2) {
     // On low-power devices, detect every other frame and reuse landmarks.
-    const lowPower = autoOpt.checked && isMobile();
     const shouldDetect = !lowPower || (frameCounter % 2 === 0);
     if (shouldDetect) {
       try {
@@ -115,11 +121,27 @@ function loop(now) {
       }
     }
     renderer.updateLandmarks(cachedLandmarks);
-    renderer.updateParams({ ...readParams(), lowPower });
   } else {
     renderer.updateLandmarks(null);
-    renderer.updateParams({ ...readParams(), lowPower: false });
   }
+
+  // Background segmentation (only when toggle is on and model loaded).
+  if (wantBg && segmenterReady && video.readyState >= 2) {
+    const shouldSeg = !lowPower || (frameCounter % 2 === 0);
+    if (shouldSeg) {
+      try { cachedMask = segment(video, now); } catch (e) { /* timestamp issues */ }
+    }
+    renderer.updateMask(cachedMask);
+  } else {
+    cachedMask = null;
+    renderer.updateMask(null);
+  }
+
+  renderer.updateParams({
+    ...readParams(),
+    lowPower,
+    useMask: wantBg && segmenterReady
+  });
 
   renderer.draw(video);
   frameCounter++;
@@ -157,6 +179,23 @@ function wireUI() {
   document.getElementById('rotate').addEventListener('click', () => {
     view.rotation = (view.rotation + 90) % 360;
     applyViewTransform();
+  });
+
+  // Lazily load the segmentation model the first time bg removal is enabled.
+  removeBgEl.addEventListener('change', async () => {
+    if (removeBgEl.checked && !segmenterReady && !segmenterLoading) {
+      segmenterLoading = true;
+      setStatus('배경 제거 모델 로딩 중…');
+      try {
+        await initSegmenter();
+        segmenterReady = true;
+        setStatus(null);
+      } catch (e) {
+        setStatus('배경 제거 모델 로드 실패: ' + e.message, true);
+        removeBgEl.checked = false;
+      }
+      segmenterLoading = false;
+    }
   });
 
   document.getElementById('snap').addEventListener('click', () => {

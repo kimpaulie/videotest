@@ -59,14 +59,20 @@ export class Renderer {
     // Intermediate FBO + texture
     this.fboTex = this._createTexture();
     this.fbo = gl.createFramebuffer();
+    // Segmentation mask texture (single channel, R8)
+    this.maskTex = this._createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([255]));
+    this.maskData = null;
 
     this.width = 0;
     this.height = 0;
 
     this.params = {
-      slimFace: 0.3, vLine: 0.3, enlargeEyes: 0.2,
-      slimNose: 0.2, noseHeight: 0, lipSize: 0,
-      smooth: 0.4, lowPower: false
+      slimFace: 0, vLine: 0, enlargeEyes: 0,
+      smooth: 0.4, glow: 0.3, lowPower: false,
+      useMask: false, bgColor: [0.96, 0.96, 0.97]
     };
     this.landmarks = null;
   }
@@ -109,6 +115,10 @@ export class Renderer {
 
   updateParams(p) { Object.assign(this.params, p); }
   updateLandmarks(landmarks) { this.landmarks = landmarks; }
+  updateMask(mask) {
+    // mask: { data: Uint8Array, width, height } or null
+    this.maskData = mask;
+  }
 
   draw(video) {
     const gl = this.gl;
@@ -150,8 +160,6 @@ export class Renderer {
       }
     };
 
-    setUV('u_faceTop',     LANDMARK_INDEX.faceTop);
-    setUV('u_faceBottom',  LANDMARK_INDEX.faceBottom);
     setUV('u_faceLeft',    LANDMARK_INDEX.faceLeft);
     setUV('u_faceRight',   LANDMARK_INDEX.faceRight);
     setUV('u_jawLeft',     LANDMARK_INDEX.jawLeft);
@@ -159,15 +167,6 @@ export class Renderer {
     setUV('u_chinTip',     LANDMARK_INDEX.chinTip);
     setAvgUV('u_leftEye',  LANDMARK_INDEX.leftEyeInner, LANDMARK_INDEX.leftEyeOuter);
     setAvgUV('u_rightEye', LANDMARK_INDEX.rightEyeInner, LANDMARK_INDEX.rightEyeOuter);
-    setUV('u_leftEyeOuter',  LANDMARK_INDEX.leftEyeOuter);
-    setUV('u_rightEyeOuter', LANDMARK_INDEX.rightEyeOuter);
-    setUV('u_noseTip',       LANDMARK_INDEX.noseTip);
-    setUV('u_noseBridge',    LANDMARK_INDEX.noseBridge);
-    setUV('u_noseLeftWing',  LANDMARK_INDEX.noseLeftWing);
-    setUV('u_noseRightWing', LANDMARK_INDEX.noseRightWing);
-    setAvgUV('u_lipCenter',  LANDMARK_INDEX.upperLip, LANDMARK_INDEX.lowerLip);
-    setUV('u_lipLeft',       LANDMARK_INDEX.lipLeft);
-    setUV('u_lipRight',      LANDMARK_INDEX.lipRight);
 
     let fw = 0.3;
     if (lm) {
@@ -181,9 +180,6 @@ export class Renderer {
     gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_slimFace'),    p.slimFace);
     gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_vLine'),       p.vLine);
     gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_enlargeEyes'), p.enlargeEyes);
-    gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_slimNose'),    p.slimNose);
-    gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_noseHeight'),  p.noseHeight);
-    gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_lipSize'),     p.lipSize);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -198,8 +194,23 @@ export class Renderer {
     gl.uniform1i(gl.getUniformLocation(this.smoothProg, 'u_src'), 0);
     gl.uniform2f(gl.getUniformLocation(this.smoothProg, 'u_texel'), 1 / w, 1 / h);
     gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_strength'), p.smooth);
+    gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_glow'), p.glow);
     gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_lowPower'), p.lowPower ? 1.0 : 0.0);
     gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_hasFace'), hasFace);
+
+    // Background mask
+    const useMask = p.useMask && this.maskData ? 1.0 : 0.0;
+    gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_useMask'), useMask);
+    gl.uniform3f(gl.getUniformLocation(this.smoothProg, 'u_bgColor'),
+      p.bgColor[0], p.bgColor[1], p.bgColor[2]);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
+    if (useMask > 0.5) {
+      const m = this.maskData;
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, m.width, m.height, 0, gl.RED, gl.UNSIGNED_BYTE, m.data);
+    }
+    gl.uniform1i(gl.getUniformLocation(this.smoothProg, 'u_mask'), 1);
 
     if (lm) {
       const c = lm[LANDMARK_INDEX.noseTip];

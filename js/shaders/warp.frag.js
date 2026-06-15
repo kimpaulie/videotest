@@ -1,5 +1,5 @@
 // Fragment shader: face liquify warp.
-// Uses 12 control points and pulls UV coordinates toward target points.
+// Bidirectional: positive strength slims/sharpens/enlarges, negative reverses.
 
 export const WARP_FRAGMENT = `#version 300 es
 precision highp float;
@@ -9,9 +9,7 @@ out vec4 outColor;
 
 uniform sampler2D u_video;
 
-// Landmark uniforms in UV space (0..1, with y already flipped to UV convention).
-uniform vec2 u_faceTop;
-uniform vec2 u_faceBottom;
+// Landmark uniforms in UV space (0..1, image top-left origin).
 uniform vec2 u_faceLeft;
 uniform vec2 u_faceRight;
 uniform vec2 u_jawLeft;
@@ -19,28 +17,15 @@ uniform vec2 u_jawRight;
 uniform vec2 u_chinTip;
 uniform vec2 u_leftEye;
 uniform vec2 u_rightEye;
-uniform vec2 u_leftEyeOuter;
-uniform vec2 u_rightEyeOuter;
-uniform vec2 u_noseTip;
-uniform vec2 u_noseBridge;
-uniform vec2 u_noseLeftWing;
-uniform vec2 u_noseRightWing;
-uniform vec2 u_lipCenter;
-uniform vec2 u_lipLeft;
-uniform vec2 u_lipRight;
 
-uniform float u_faceWidth;   // face width in UV (for scaling radii)
+uniform float u_faceWidth;
 uniform float u_hasFace;
 
-uniform float u_slimFace;
-uniform float u_vLine;
-uniform float u_enlargeEyes;
-uniform float u_slimNose;
-uniform float u_noseHeight;
-uniform float u_lipSize;
+uniform float u_slimFace;     // -1..1
+uniform float u_vLine;        // -1..1
+uniform float u_enlargeEyes;  // -1..1
 
-// Pull uv toward 'target' from 'center' within a circular radius.
-// strength > 0 pulls toward target; < 0 pushes away (used for eye enlarge).
+// Pull uv from 'center' toward 'target' within a circular radius.
 vec2 liquify(vec2 uv, vec2 center, vec2 target, float radius, float strength) {
   float d = distance(uv, center);
   if (d >= radius) return uv;
@@ -64,29 +49,18 @@ void main() {
     vec2 faceCenter = (u_faceLeft + u_faceRight) * 0.5;
     float fw = max(u_faceWidth, 0.05);
 
-    // 1) Slim face: pull left/right cheeks toward center
-    uv = liquify(uv, u_faceLeft,  faceCenter, fw * 0.55, u_slimFace * 0.35);
-    uv = liquify(uv, u_faceRight, faceCenter, fw * 0.55, u_slimFace * 0.35);
+    // Face size: pull cheeks toward center (slim) or push out (widen)
+    uv = liquify(uv, u_faceLeft,  faceCenter, fw * 0.55, u_slimFace * 0.32);
+    uv = liquify(uv, u_faceRight, faceCenter, fw * 0.55, u_slimFace * 0.32);
 
-    // 2) V-line: pull jaw points toward chin & center, shorten chin slightly
+    // Jaw line: pull jaw toward chin/center (sharpen) or out (round)
     vec2 jawTarget = mix(faceCenter, u_chinTip, 0.5);
-    uv = liquify(uv, u_jawLeft,  jawTarget, fw * 0.45, u_vLine * 0.45);
-    uv = liquify(uv, u_jawRight, jawTarget, fw * 0.45, u_vLine * 0.45);
+    uv = liquify(uv, u_jawLeft,  jawTarget, fw * 0.45, u_vLine * 0.42);
+    uv = liquify(uv, u_jawRight, jawTarget, fw * 0.45, u_vLine * 0.42);
 
-    // 3) Eye enlarge — radial scale outward around each eye
+    // Eye size: radial scale outward (enlarge) or inward (shrink)
     uv = radialScale(uv, u_leftEye,  fw * 0.18, u_enlargeEyes * 0.35);
     uv = radialScale(uv, u_rightEye, fw * 0.18, u_enlargeEyes * 0.35);
-
-    // 4) Nose slim — pull both wings toward bridge
-    uv = liquify(uv, u_noseLeftWing,  u_noseBridge, fw * 0.18, u_slimNose * 0.45);
-    uv = liquify(uv, u_noseRightWing, u_noseBridge, fw * 0.18, u_slimNose * 0.45);
-
-    // 5) Nose height — push tip up (toward bridge) or down
-    vec2 noseTarget = u_noseTip + (u_noseBridge - u_noseTip) * u_noseHeight;
-    uv = liquify(uv, u_noseTip, noseTarget, fw * 0.22, 0.6);
-
-    // 6) Lip size — radial scale around lip center
-    uv = radialScale(uv, u_lipCenter, fw * 0.22, u_lipSize * 0.25);
   }
 
   outColor = texture(u_video, uv);
