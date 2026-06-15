@@ -10,15 +10,15 @@ out vec4 outColor;
 uniform sampler2D u_video;
 
 // Landmark uniforms in UV space (0..1, image top-left origin).
-uniform vec2 u_faceLeft;
-uniform vec2 u_faceRight;
-uniform vec2 u_jawLeft;
-uniform vec2 u_jawRight;
+uniform vec2 u_faceCenter;   // centroid of the face
 uniform vec2 u_chinTip;
 uniform vec2 u_leftEye;
 uniform vec2 u_rightEye;
+// Jaw silhouette: 3 points per side, outer (gonial angle) -> inner (near chin)
+uniform vec2 u_jawL0; uniform vec2 u_jawL1; uniform vec2 u_jawL2;
+uniform vec2 u_jawR0; uniform vec2 u_jawR1; uniform vec2 u_jawR2;
 
-uniform float u_faceWidth;
+uniform float u_faceSize;    // max(width,height) of the face in UV
 uniform float u_hasFace;
 
 uniform float u_slimFace;     // -1..1
@@ -33,34 +33,47 @@ vec2 liquify(vec2 uv, vec2 center, vec2 target, float radius, float strength) {
   return uv + (target - center) * ratio;
 }
 
-// Radial scale around a center (positive = enlarge).
-vec2 radialScale(vec2 uv, vec2 center, float radius, float amount) {
+// Radial scale around a center (positive amount = shrink toward center).
+vec2 radialShrink(vec2 uv, vec2 center, float radius, float amount) {
+  float d = distance(uv, center);
+  if (d >= radius) return uv;
+  float falloff = pow(1.0 - d / radius, 1.5);
+  float scale = 1.0 + amount * falloff;  // >1 samples farther = looks smaller
+  return center + (uv - center) * scale;
+}
+
+// Enlarge around a center (positive amount = bigger).
+vec2 radialGrow(vec2 uv, vec2 center, float radius, float amount) {
   float d = distance(uv, center);
   if (d >= radius) return uv;
   float falloff = pow(1.0 - d / radius, 2.0);
-  float scale = 1.0 - amount * falloff;
-  return center + (uv - center) * scale;
+  return center + (uv - center) * (1.0 - amount * falloff);
 }
 
 void main() {
   vec2 uv = v_uv;
 
   if (u_hasFace > 0.5) {
-    vec2 faceCenter = (u_faceLeft + u_faceRight) * 0.5;
-    float fw = max(u_faceWidth, 0.05);
+    float fs = max(u_faceSize, 0.05);
 
-    // Face size: pull cheeks toward center (slim) or push out (widen)
-    uv = liquify(uv, u_faceLeft,  faceCenter, fw * 0.55, u_slimFace * 0.32);
-    uv = liquify(uv, u_faceRight, faceCenter, fw * 0.55, u_slimFace * 0.32);
+    // 1) Overall face size — uniform radial scale around the centroid.
+    //    Covers the whole head so the face shrinks/grows as a whole.
+    uv = radialShrink(uv, u_faceCenter, fs * 0.85, u_slimFace * 0.22);
 
-    // Jaw line: pull jaw toward chin/center (sharpen) or out (round)
-    vec2 jawTarget = mix(faceCenter, u_chinTip, 0.5);
-    uv = liquify(uv, u_jawLeft,  jawTarget, fw * 0.45, u_vLine * 0.42);
-    uv = liquify(uv, u_jawRight, jawTarget, fw * 0.45, u_vLine * 0.42);
+    // 2) Jaw / V-line — pull each jaw point toward the chin with a taper.
+    //    Outer (gonial angle) moves most, inner (near chin) least, so the
+    //    jaw curves smoothly into the chin instead of going flat.
+    float r = fs * 0.34;
+    uv = liquify(uv, u_jawL0, u_chinTip, r, u_vLine * 0.50);
+    uv = liquify(uv, u_jawL1, u_chinTip, r, u_vLine * 0.36);
+    uv = liquify(uv, u_jawL2, u_chinTip, r, u_vLine * 0.20);
+    uv = liquify(uv, u_jawR0, u_chinTip, r, u_vLine * 0.50);
+    uv = liquify(uv, u_jawR1, u_chinTip, r, u_vLine * 0.36);
+    uv = liquify(uv, u_jawR2, u_chinTip, r, u_vLine * 0.20);
 
-    // Eye size: radial scale outward (enlarge) or inward (shrink)
-    uv = radialScale(uv, u_leftEye,  fw * 0.18, u_enlargeEyes * 0.35);
-    uv = radialScale(uv, u_rightEye, fw * 0.18, u_enlargeEyes * 0.35);
+    // 3) Eye size — radial scale outward (enlarge) or inward (shrink)
+    uv = radialGrow(uv, u_leftEye,  fs * 0.16, u_enlargeEyes * 0.35);
+    uv = radialGrow(uv, u_rightEye, fs * 0.16, u_enlargeEyes * 0.35);
   }
 
   outColor = texture(u_video, uv);

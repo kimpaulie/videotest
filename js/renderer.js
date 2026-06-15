@@ -59,20 +59,13 @@ export class Renderer {
     // Intermediate FBO + texture
     this.fboTex = this._createTexture();
     this.fbo = gl.createFramebuffer();
-    // Segmentation mask texture (single channel, R8)
-    this.maskTex = this._createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([255]));
-    this.maskData = null;
 
     this.width = 0;
     this.height = 0;
 
     this.params = {
       slimFace: 0, vLine: 0, enlargeEyes: 0,
-      smooth: 0.4, glow: 0.3, lowPower: false,
-      useMask: false, bgColor: [0.96, 0.96, 0.97]
+      smooth: 0.4, glow: 0.3, lowPower: false
     };
     this.landmarks = null;
   }
@@ -115,10 +108,6 @@ export class Renderer {
 
   updateParams(p) { Object.assign(this.params, p); }
   updateLandmarks(landmarks) { this.landmarks = landmarks; }
-  updateMask(mask) {
-    // mask: { data: Uint8Array, width, height } or null
-    this.maskData = mask;
-  }
 
   draw(video) {
     const gl = this.gl;
@@ -160,21 +149,29 @@ export class Renderer {
       }
     };
 
-    setUV('u_faceLeft',    LANDMARK_INDEX.faceLeft);
-    setUV('u_faceRight',   LANDMARK_INDEX.faceRight);
-    setUV('u_jawLeft',     LANDMARK_INDEX.jawLeft);
-    setUV('u_jawRight',    LANDMARK_INDEX.jawRight);
-    setUV('u_chinTip',     LANDMARK_INDEX.chinTip);
+    setUV('u_chinTip',  LANDMARK_INDEX.chinTip);
+    setUV('u_jawL0',    LANDMARK_INDEX.jawL0);
+    setUV('u_jawL1',    LANDMARK_INDEX.jawL1);
+    setUV('u_jawL2',    LANDMARK_INDEX.jawL2);
+    setUV('u_jawR0',    LANDMARK_INDEX.jawR0);
+    setUV('u_jawR1',    LANDMARK_INDEX.jawR1);
+    setUV('u_jawR2',    LANDMARK_INDEX.jawR2);
     setAvgUV('u_leftEye',  LANDMARK_INDEX.leftEyeInner, LANDMARK_INDEX.leftEyeOuter);
     setAvgUV('u_rightEye', LANDMARK_INDEX.rightEyeInner, LANDMARK_INDEX.rightEyeOuter);
 
-    let fw = 0.3;
+    // Face centroid + size (max of width/height) for overall-shrink and skin mask.
+    let faceCx = 0.5, faceCy = 0.5, faceSize = 0.3;
     if (lm) {
-      const L = lm[LANDMARK_INDEX.faceLeft];
-      const R = lm[LANDMARK_INDEX.faceRight];
-      fw = Math.hypot(R.x - L.x, R.y - L.y);
+      const L = lm[LANDMARK_INDEX.faceLeft], R = lm[LANDMARK_INDEX.faceRight];
+      const T = lm[LANDMARK_INDEX.faceTop],  B = lm[LANDMARK_INDEX.faceBottom];
+      faceCx = (L.x + R.x + T.x + B.x) / 4;
+      faceCy = (L.y + R.y + T.y + B.y) / 4;
+      const fwid = Math.hypot(R.x - L.x, R.y - L.y);
+      const fhei = Math.hypot(B.x - T.x, B.y - T.y);
+      faceSize = Math.max(fwid, fhei);
     }
-    gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_faceWidth'), fw);
+    gl.uniform2f(gl.getUniformLocation(this.warpProg, 'u_faceCenter'), faceCx, faceCy);
+    gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_faceSize'), faceSize);
 
     const p = this.params;
     gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_slimFace'),    p.slimFace);
@@ -198,27 +195,8 @@ export class Renderer {
     gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_lowPower'), p.lowPower ? 1.0 : 0.0);
     gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_hasFace'), hasFace);
 
-    // Background mask
-    const useMask = p.useMask && this.maskData ? 1.0 : 0.0;
-    gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_useMask'), useMask);
-    gl.uniform3f(gl.getUniformLocation(this.smoothProg, 'u_bgColor'),
-      p.bgColor[0], p.bgColor[1], p.bgColor[2]);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.maskTex);
-    if (useMask > 0.5) {
-      const m = this.maskData;
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, m.width, m.height, 0, gl.RED, gl.UNSIGNED_BYTE, m.data);
-    }
-    gl.uniform1i(gl.getUniformLocation(this.smoothProg, 'u_mask'), 1);
-
-    if (lm) {
-      const c = lm[LANDMARK_INDEX.noseTip];
-      gl.uniform2f(gl.getUniformLocation(this.smoothProg, 'u_faceCenter'), c.x, c.y);
-    } else {
-      gl.uniform2f(gl.getUniformLocation(this.smoothProg, 'u_faceCenter'), 0.5, 0.5);
-    }
-    gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_faceRadius'), fw * 0.9);
+    gl.uniform2f(gl.getUniformLocation(this.smoothProg, 'u_faceCenter'), faceCx, faceCy);
+    gl.uniform1f(gl.getUniformLocation(this.smoothProg, 'u_faceRadius'), faceSize * 0.6);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }

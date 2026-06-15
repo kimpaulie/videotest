@@ -1,4 +1,4 @@
-// Final pass: skin smoothing (bilateral) + soft glow (뽀샤시) + background removal.
+// Final pass: skin smoothing (bilateral) + soft glow (뽀샤시).
 
 export const SMOOTH_FRAGMENT = `#version 300 es
 precision highp float;
@@ -7,7 +7,6 @@ in vec2 v_uv;
 out vec4 outColor;
 
 uniform sampler2D u_src;
-uniform sampler2D u_mask;    // foreground probability (R channel), 0..1
 uniform vec2 u_texel;        // 1/width, 1/height
 uniform float u_strength;    // skin smoothing 0..1
 uniform float u_glow;        // 뽀샤시 0..1
@@ -15,8 +14,6 @@ uniform vec2 u_faceCenter;
 uniform float u_faceRadius;
 uniform float u_hasFace;
 uniform float u_lowPower;
-uniform float u_useMask;     // 1.0 = remove background
-uniform vec3 u_bgColor;
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -91,13 +88,6 @@ void main() {
     float g = luma(glowed);
     glowed = mix(glowed, vec3(g), 0.08);
     color = mix(color, glowed, u_glow);
-  }
-
-  // --- Background removal ---
-  if (u_useMask > 0.5) {
-    float person = texture(u_mask, v_uv).r;
-    float a = smoothstep(0.35, 0.65, person);
-    color = mix(u_bgColor, color, a);
   }
 
   outColor = vec4(color, 1.0);
