@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>Face Beauty — 실시간 얼굴 보정</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Face Beauty</h1>
+    <span id="fps" class="badge">— fps</span>
+  </header>
+
+  <main>
+    <div id="stage">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="canvas"></canvas>
+      <div id="status">웹캠 권한을 허용해 주세요…</div>
+    </div>
+
+    <section id="controls">
+      <div class="preset-row">
+        <button class="preset" data-preset="reset">원본</button>
+        <button class="preset" data-preset="natural">자연</button>
+        <button class="preset" data-preset="small-face">소두</button>
+        <button class="preset" data-preset="v-line">V라인</button>
+        <button class="preset" data-preset="big-eyes">큰 눈</button>
+      </div>
+
+      <div class="sliders">
+        <label><span>얼굴 축소</span><input type="range" id="slimFace" min="0" max="1" step="0.01" value="0.3" /><output>0.30</output></label>
+        <label><span>턱 갸름 (V)</span><input type="range" id="vLine" min="0" max="1" step="0.01" value="0.3" /><output>0.30</output></label>
+        <label><span>눈 확대</span><input type="range" id="enlargeEyes" min="0" max="1" step="0.01" value="0.2" /><output>0.20</output></label>
+        <label><span>코 좁힘</span><input type="range" id="slimNose" min="0" max="1" step="0.01" value="0.2" /><output>0.20</output></label>
+        <label><span>코 높이</span><input type="range" id="noseHeight" min="-0.5" max="0.5" step="0.01" value="0" /><output>0.00</output></label>
+        <label><span>입술 크기</span><input type="range" id="lipSize" min="-0.5" max="0.5" step="0.01" value="0" /><output>0.00</output></label>
+        <label><span>피부 매끈</span><input type="range" id="smooth" min="0" max="1" step="0.01" value="0.4" /><output>0.40</output></label>
+        <label class="toggle"><span>자동 최적화 (모바일)</span><input type="checkbox" id="autoOptimize" checked /></label>
+      </div>
+
+      <div class="view-row">
+        <button id="mirror" class="active">↔ 좌우반전</button>
+        <button id="rotate">⟳ 회전</button>
+        <button id="flip">🔄 전후면 전환</button>
+      </div>
+
+      <div class="action-row">
+        <button id="snap">📷 사진 저장</button>
+        <button id="record">⏺ 녹화 시작</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

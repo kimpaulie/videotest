@@ -1,0 +1,7 @@
+{
+  "reset":      { "slimFace": 0,    "vLine": 0,    "enlargeEyes": 0,    "slimNose": 0,    "noseHeight": 0,    "lipSize": 0,    "smooth": 0    },
+  "natural":    { "slimFace": 0.2,  "vLine": 0.2,  "enlargeEyes": 0.15, "slimNose": 0.15, "noseHeight": 0.05, "lipSize": 0.05, "smooth": 0.35 },
+  "small-face": { "slimFace": 0.7,  "vLine": 0.5,  "enlargeEyes": 0.2,  "slimNose": 0.25, "noseHeight": 0.05, "lipSize": 0,    "smooth": 0.4  },
+  "v-line":     { "slimFace": 0.3,  "vLine": 0.85, "enlargeEyes": 0.15, "slimNose": 0.3,  "noseHeight": 0.1,  "lipSize": 0,    "smooth": 0.4  },
+  "big-eyes":   { "slimFace": 0.2,  "vLine": 0.2,  "enlargeEyes": 0.85, "slimNose": 0.2,  "noseHeight": 0.05, "lipSize": 0.1,  "smooth": 0.35 }
+}
