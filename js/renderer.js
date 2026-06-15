@@ -159,8 +159,11 @@ export class Renderer {
     setAvgUV('u_leftEye',  LANDMARK_INDEX.leftEyeInner, LANDMARK_INDEX.leftEyeOuter);
     setAvgUV('u_rightEye', LANDMARK_INDEX.rightEyeInner, LANDMARK_INDEX.rightEyeOuter);
 
-    // Face centroid + size (max of width/height) for overall-shrink and skin mask.
+    // Face geometry. faceCenter/faceSize drive jaw, eyes and the skin mask.
+    // headCenter is biased up toward the crown so the whole head (incl. hair)
+    // scales as a unit; inner/outer radii give a uniform-scale plateau + soft edge.
     let faceCx = 0.5, faceCy = 0.5, faceSize = 0.3;
+    let headCx = 0.5, headCy = 0.5, headInner = 0.27, headOuter = 0.42;
     if (lm) {
       const L = lm[LANDMARK_INDEX.faceLeft], R = lm[LANDMARK_INDEX.faceRight];
       const T = lm[LANDMARK_INDEX.faceTop],  B = lm[LANDMARK_INDEX.faceBottom];
@@ -169,8 +172,16 @@ export class Renderer {
       const fwid = Math.hypot(R.x - L.x, R.y - L.y);
       const fhei = Math.hypot(B.x - T.x, B.y - T.y);
       faceSize = Math.max(fwid, fhei);
+      // Crown sits above the forehead-top landmark; move the center up a bit
+      // and size the plateau to cover face + hair.
+      headCx = faceCx;
+      headCy = faceCy - fhei * 0.18;
+      headInner = fhei * 0.85;
+      headOuter = fhei * 1.30;
     }
-    gl.uniform2f(gl.getUniformLocation(this.warpProg, 'u_faceCenter'), faceCx, faceCy);
+    gl.uniform2f(gl.getUniformLocation(this.warpProg, 'u_headCenter'), headCx, headCy);
+    gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_headInner'), headInner);
+    gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_headOuter'), headOuter);
     gl.uniform1f(gl.getUniformLocation(this.warpProg, 'u_faceSize'), faceSize);
 
     const p = this.params;

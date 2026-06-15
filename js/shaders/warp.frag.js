@@ -1,5 +1,6 @@
 // Fragment shader: face liquify warp.
 // Bidirectional: positive strength slims/sharpens/enlarges, negative reverses.
+// Effect strengths are intentionally gentle — sliders saturate to a subtle max.
 
 export const WARP_FRAGMENT = `#version 300 es
 precision highp float;
@@ -9,8 +10,11 @@ out vec4 outColor;
 
 uniform sampler2D u_video;
 
-// Landmark uniforms in UV space (0..1, image top-left origin).
-uniform vec2 u_faceCenter;   // centroid of the face
+// Head/face geometry in UV space (0..1, image top-left origin).
+uniform vec2 u_headCenter;   // center of the whole head (biased up toward crown)
+uniform float u_headInner;   // plateau radius (uniform scaling inside this)
+uniform float u_headOuter;   // transition radius (scaling fades to 0 by here)
+
 uniform vec2 u_chinTip;
 uniform vec2 u_leftEye;
 uniform vec2 u_rightEye;
@@ -19,35 +23,31 @@ uniform vec2 u_jawL0; uniform vec2 u_jawL1; uniform vec2 u_jawL2;
 uniform vec2 u_jawR0; uniform vec2 u_jawR1; uniform vec2 u_jawR2;
 
 uniform float u_faceSize;    // max(width,height) of the face in UV
-uniform float u_hasFace;
 
+uniform float u_hasFace;
 uniform float u_slimFace;     // -1..1
 uniform float u_vLine;        // -1..1
 uniform float u_enlargeEyes;  // -1..1
 
-// Pull uv from 'center' toward 'target' within a circular radius.
-vec2 liquify(vec2 uv, vec2 center, vec2 target, float radius, float strength) {
+// Uniform resize of a region with a soft edge.
+// 'amount' > 0 shrinks (samples outward), < 0 enlarges. The interior between
+// the center and innerR scales by a CONSTANT factor (true resize, no pinch);
+// only the innerR..outerR band ramps the factor back to 1 so the background
+// isn't distorted and there's no hard seam.
+vec2 regionScale(vec2 uv, vec2 center, float innerR, float outerR, float amount) {
   float d = distance(uv, center);
-  if (d >= radius) return uv;
-  float ratio = pow(1.0 - d / radius, 2.0) * strength;
-  return uv + (target - center) * ratio;
-}
-
-// Radial scale around a center (positive amount = shrink toward center).
-vec2 radialShrink(vec2 uv, vec2 center, float radius, float amount) {
-  float d = distance(uv, center);
-  if (d >= radius) return uv;
-  float falloff = pow(1.0 - d / radius, 1.5);
-  float scale = 1.0 + amount * falloff;  // >1 samples farther = looks smaller
+  float m = 1.0 - smoothstep(innerR, outerR, d);   // 1 inside plateau, 0 outside
+  float scale = 1.0 + amount * m;
   return center + (uv - center) * scale;
 }
 
-// Enlarge around a center (positive amount = bigger).
-vec2 radialGrow(vec2 uv, vec2 center, float radius, float amount) {
+// Smooth (C1) pull of uv from 'center' toward 'target' within a radius.
+vec2 liquify(vec2 uv, vec2 center, vec2 target, float radius, float strength) {
   float d = distance(uv, center);
   if (d >= radius) return uv;
-  float falloff = pow(1.0 - d / radius, 2.0);
-  return center + (uv - center) * (1.0 - amount * falloff);
+  float f = 1.0 - d / radius;
+  float ratio = (f * f * (3.0 - 2.0 * f)) * strength;  // smoothstep falloff
+  return uv + (target - center) * ratio;
 }
 
 void main() {
@@ -56,24 +56,23 @@ void main() {
   if (u_hasFace > 0.5) {
     float fs = max(u_faceSize, 0.05);
 
-    // 1) Overall face size — uniform radial scale around the centroid.
-    //    Covers the whole head so the face shrinks/grows as a whole.
-    uv = radialShrink(uv, u_faceCenter, fs * 0.85, u_slimFace * 0.22);
+    // 1) Whole-head size — uniform scale around the head center with a soft
+    //    edge, so the entire head (incl. hair) grows/shrinks together.
+    uv = regionScale(uv, u_headCenter, u_headInner, u_headOuter, u_slimFace * 0.12);
 
-    // 2) Jaw / V-line — pull each jaw point toward the chin with a taper.
-    //    Outer (gonial angle) moves most, inner (near chin) least, so the
-    //    jaw curves smoothly into the chin instead of going flat.
-    float r = fs * 0.34;
-    uv = liquify(uv, u_jawL0, u_chinTip, r, u_vLine * 0.50);
-    uv = liquify(uv, u_jawL1, u_chinTip, r, u_vLine * 0.36);
-    uv = liquify(uv, u_jawL2, u_chinTip, r, u_vLine * 0.20);
-    uv = liquify(uv, u_jawR0, u_chinTip, r, u_vLine * 0.50);
-    uv = liquify(uv, u_jawR1, u_chinTip, r, u_vLine * 0.36);
-    uv = liquify(uv, u_jawR2, u_chinTip, r, u_vLine * 0.20);
+    // 2) Jaw / V-line — overlapping soft pulls toward the chin, graduated so the
+    //    jaw curves smoothly into the chin (dimensional, not a flat squeeze).
+    float r = fs * 0.42;
+    uv = liquify(uv, u_jawL0, u_chinTip, r, u_vLine * 0.26);
+    uv = liquify(uv, u_jawL1, u_chinTip, r, u_vLine * 0.18);
+    uv = liquify(uv, u_jawL2, u_chinTip, r, u_vLine * 0.10);
+    uv = liquify(uv, u_jawR0, u_chinTip, r, u_vLine * 0.26);
+    uv = liquify(uv, u_jawR1, u_chinTip, r, u_vLine * 0.18);
+    uv = liquify(uv, u_jawR2, u_chinTip, r, u_vLine * 0.10);
 
-    // 3) Eye size — radial scale outward (enlarge) or inward (shrink)
-    uv = radialGrow(uv, u_leftEye,  fs * 0.16, u_enlargeEyes * 0.35);
-    uv = radialGrow(uv, u_rightEye, fs * 0.16, u_enlargeEyes * 0.35);
+    // 3) Eye size — gentle uniform scale around each eye.
+    uv = regionScale(uv, u_leftEye,  fs * 0.10, fs * 0.20, -u_enlargeEyes * 0.18);
+    uv = regionScale(uv, u_rightEye, fs * 0.10, fs * 0.20, -u_enlargeEyes * 0.18);
   }
 
   outColor = texture(u_video, uv);
