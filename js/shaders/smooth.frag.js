@@ -75,19 +75,29 @@ void main() {
     }
   }
 
-  // --- 뽀샤시 (soft glow): bloom + brighten + soften contrast ---
+  // --- 뽀샤시 (soft glow) ---
+  // Optimal recipe: ~70% bloom + ~20% brighten + ~10% tone, applied mostly on
+  // the face (background gets only ~40%) so the result reads as studio-soft
+  // rather than a flat full-frame haze.
   if (u_glow > 0.001) {
     float r = u_lowPower > 0.5 ? 5.0 : 8.0;
     vec3 bloom = softBlur(v_uv, r);
-    // Screen blend so highlights bloom softly
-    vec3 screened = 1.0 - (1.0 - color) * (1.0 - bloom * 0.85);
-    vec3 glowed = mix(color, screened, 0.6);
-    // Lift shadows + gentle brighten for the dreamy look
-    glowed = glowed * 1.04 + 0.035;
-    // Slight desaturation toward soft pastel
+    // 1) Bloom (the star) — screen-blend the blurred image over the original
+    vec3 screened = 1.0 - (1.0 - color) * (1.0 - bloom * 0.8);
+    vec3 glowed = mix(color, screened, 0.55);
+    // 2) Gentle brighten + slight haze (lift blacks just a touch)
+    glowed = glowed * 1.025 + 0.022;
+    // 3) Minimal desaturation toward soft pastel
     float g = luma(glowed);
-    glowed = mix(glowed, vec3(g), 0.08);
-    color = mix(color, glowed, u_glow);
+    glowed = mix(glowed, vec3(g), 0.05);
+    // Face-weighted: full on the face, ~40% on the background.
+    float w = u_glow;
+    if (u_hasFace > 0.5) {
+      float d = distance(v_uv, u_faceCenter);
+      float faceMask = 1.0 - smoothstep(u_faceRadius * 0.9, u_faceRadius * 1.5, d);
+      w *= mix(0.4, 1.0, faceMask);
+    }
+    color = mix(color, glowed, w);
   }
 
   outColor = vec4(color, 1.0);
